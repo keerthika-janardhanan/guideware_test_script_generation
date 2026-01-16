@@ -119,6 +119,44 @@ def _compose_locators(action: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     return locators, element_label
 
 
+def _is_valid_selector(selector: str, css: str = "", xpath: str = "") -> bool:
+    """Check if a selector is valid and not too generic to be useful."""
+    if not selector:
+        return False
+    
+    selector_lower = selector.lower().strip()
+    
+    # Reject generic element selectors
+    invalid_patterns = [
+        "body", "html", "document", "window",
+        "html > body", "body.", "html.body"
+    ]
+    
+    for pattern in invalid_patterns:
+        if selector_lower == pattern or selector_lower.startswith(pattern + " ") or selector_lower.startswith(pattern + "."):
+            return False
+    
+    # Reject XPath that only targets html or body
+    if xpath:
+        xpath_lower = xpath.lower()
+        if xpath_lower in ("/html[1]", "/html[1]/body[1]", "//html", "//body", "/html", "/body"):
+            return False
+        # Reject XPath that ends with just /body[1]
+        if xpath_lower.endswith("/body[1]") and xpath_lower.count("/") <= 3:
+            return False
+    
+    # Reject CSS that only targets body or html
+    if css:
+        css_lower = css.lower().strip()
+        if css_lower in ("body", "html", "html > body"):
+            return False
+        # Reject selectors like "body.someclass" without descendants
+        if css_lower.startswith("body") and ">" not in css_lower and " " not in css_lower[4:]:
+            return False
+    
+    return True
+
+
 def _convert_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     action_type = (action.get("type") or action.get("action") or "").lower()
     extra = action.get("extra") or {}
@@ -172,6 +210,14 @@ def _convert_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         )
     if not selector:
         selector = locators.get("css") or locators.get("raw_xpath") or ""
+
+    # Get CSS and XPath for validation
+    css_selector = selector_obj.get("css") or locators.get("css", "")
+    xpath_selector = selector_obj.get("xpath") or locators.get("raw_xpath", "") or locators.get("xpath", "")
+    
+    # Validate selector - reject generic body/html selectors
+    if not _is_valid_selector(selector, css_selector, xpath_selector):
+        return None
 
     if not selector:
         return None
@@ -333,9 +379,15 @@ def build_refined_flow_from_metadata(
     except Exception:
         pass
     
-    # Get original URL from metadata options (provided by UI)
+    # Get original URL from metadata
+    # Priority: options.url > options.originalUrl > startUrl
     options = metadata.get("options") or {}
-    original_url = options.get("url") or options.get("originalUrl")
+    original_url = (
+        options.get("url") 
+        or options.get("originalUrl") 
+        or metadata.get("startUrl")
+        or metadata.get("start_url")
+    )
     
     # DISABLED: Authentication filtering - keep all actions including auth steps
     # Users can manually remove auth steps if needed
@@ -406,9 +458,15 @@ def build_refined_flow_from_metadata(
             }
         )
 
-    # Get original URL from metadata options
+    # Get original URL from metadata
+    # Priority: options.url > options.originalUrl > startUrl
     options = metadata.get("options") or {}
-    original_url = options.get("url") or options.get("originalUrl")
+    original_url = (
+        options.get("url") 
+        or options.get("originalUrl") 
+        or metadata.get("startUrl")
+        or metadata.get("start_url")
+    )
     
     # Handle pages field - can be dict or list
     pages_data = metadata.get("pages") or {}
@@ -448,8 +506,14 @@ def auto_refine_and_ingest(
     session_path = Path(session_dir)
     
     # Track original action count for filtering statistics
+    # Priority: options.url > options.originalUrl > startUrl
     options = metadata.get("options") or {}
-    original_url = options.get("url") or options.get("originalUrl")
+    original_url = (
+        options.get("url") 
+        or options.get("originalUrl") 
+        or metadata.get("startUrl")
+        or metadata.get("start_url")
+    )
     total_actions = len(metadata.get("actions") or [])
     
     refined_flow = build_refined_flow_from_metadata(metadata, flow_name=flow_name)

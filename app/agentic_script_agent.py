@@ -130,7 +130,9 @@ def _step_signature(step: Dict[str, Any]) -> str:
     action = (step.get("action") or "").strip().lower()
     navigation = (step.get("navigation") or "").strip().lower()
     data = (step.get("data") or "").strip().lower()
-    return f"{action}|{navigation}|{data}"
+    # Include step number to distinguish duplicate actions
+    step_num = step.get("step", "")
+    return f"{step_num}|{action}|{navigation}|{data}"
 
 
 def _extract_preview_signatures(preview: str) -> Optional[Set[str]]:
@@ -142,9 +144,12 @@ def _extract_preview_signatures(preview: str) -> Optional[Set[str]]:
         line = raw_line.strip()
         if not line:
             continue
+        # Extract step number
+        step_num = ""
         if line[0].isdigit():
             parts = line.split(" ", 1)
-            if len(parts) == 2:
+            if len(parts) == 2 and parts[0].rstrip('.').isdigit():
+                step_num = parts[0].rstrip('.')
                 line = parts[1].strip()
         if '|' not in line:
             continue
@@ -157,10 +162,11 @@ def _extract_preview_signatures(preview: str) -> Optional[Set[str]]:
         for segment in segments[2:]:
             if segment.startswith("data:"):
                 data_value = segment.split(":", 1)[1].strip()
-        signature = f"{action}|{navigation}|{data_value}"
+        # Include step number in signature
+        signature = f"{step_num}|{action}|{navigation}|{data_value}"
         signatures.add(signature)
         parsed_count += 1
-    if parsed_count < 2:
+    if parsed_count < 1:
         return None
     return signatures
 
@@ -1274,6 +1280,19 @@ class AgenticScriptAgent:
         keep_signatures = _extract_preview_signatures(accepted_preview)
         # Also extract navigation/action phrases for fuzzy alignment
         preview_phrases = _extract_preview_phrases(accepted_preview)
+        
+        # Debug: log what signatures were extracted
+        if keep_signatures:
+            print(f"[DEBUG] Extracted {len(keep_signatures)} signatures from preview")
+            for sig in list(keep_signatures)[:3]:
+                print(f"[DEBUG] Preview signature: {sig}")
+        
+        # Debug: log vector step signatures
+        if vector_steps:
+            print(f"[DEBUG] Vector has {len(vector_steps)} steps")
+            for step in vector_steps[:3]:
+                sig = _step_signature(step)
+                print(f"[DEBUG] Vector step {step.get('step')}: {sig}")
 
         # If signatures are too few, disable strict filtering
         final_signatures = None if (keep_signatures is not None and len(keep_signatures) < 2) else keep_signatures
@@ -1379,6 +1398,8 @@ class AgenticScriptAgent:
                 step for step in vector_steps if _step_signature(step) in keep_signatures
             ]
             effective_steps = filtered_steps or vector_steps
+            # Debug: show what was filtered
+            print(f"[DEBUG] Filtered {len(vector_steps)} -> {len(effective_steps)} steps based on preview signatures")
         else:
             effective_steps = vector_steps
 
@@ -1639,8 +1660,8 @@ class AgenticScriptAgent:
                         else:
                             page_lines.append(f"      }} else if (index === {idx}) {{")
                         page_lines.append(f"        await this.{method_name}(value);")
-                    page_lines.append('      }')
-                    page_lines.append('    }')
+                    page_lines.append('      }')  # Close the if-else chain
+                    page_lines.append('    }')  # Close the shouldHandle if
             page_lines.append('  }')
 
         page_lines.append('}')
@@ -1804,26 +1825,17 @@ class AgenticScriptAgent:
                     # We'll use this key to generate the wait statement later
                     first_non_login_selector = key
         
-        # Always emit navigation step if original_url is present (for manual authentication)
-        if original_url and not login_step_emitted:
-            note = 'Navigate to application and wait for manual authentication'
+        # Always emit navigation step as Step 0 if original_url is present
+        if original_url:
+            note = 'Navigate to application'
             step_title = json.dumps(f'Step {test_step_counter} - {note}')
             spec_lines.append(f'    await namedStep({step_title}, page, testinfo, async () => {{')
-            spec_lines.append('      // Navigate to the original URL')
+            spec_lines.append('      // Navigate to the application URL')
             spec_lines.append(f'      await page.goto({json.dumps(original_url)});')
-            spec_lines.append('      // Manual authentication: Complete login steps manually in the browser')
-            spec_lines.append('      // Wait for authentication to complete (network idle + DOM stable)')
-            spec_lines.append('      await page.waitForLoadState("networkidle", { timeout: 90000 });')
-            if first_non_login_selector:
-                spec_lines.append(f'      // Additionally wait for first interactive element if available')
-                spec_lines.append(f'      await {page_var}.{first_non_login_selector}.waitFor({{ state: "attached", timeout: 30000 }}).catch(() => {{')
-                spec_lines.append(f'        console.log("Note: First element ({first_non_login_selector}) not immediately available, continuing...");')
-                spec_lines.append('      });')
             spec_lines.append('      const screenshot = await page.screenshot();')
             spec_lines.append(f'      attachScreenshot({step_title}, testinfo, screenshot);')
             spec_lines.append('    });')
             spec_lines.append('')
-            login_step_emitted = True
             test_step_counter += 1
 
         for idx, ref in enumerate(step_refs):

@@ -14,6 +14,7 @@ export function AgenticPage() {
   const [streaming, setStreaming] = useState(false);
   const [payloadSummary, setPayloadSummary] = useState<{ locators: number; pages: number; tests: number } | null>(null);
   const [payloadFiles, setPayloadFiles] = useState<{ path: string; content: string }[] | null>(null);
+  const [testDataMapping, setTestDataMapping] = useState<{ columnName: string; occurrences: number; actionType: string; methods: string[] }[]>([]);
   const [phase, setPhase] = useState("");
   const [trialLogs, setTrialLogs] = useState("");
   const [trialSuccess, setTrialSuccess] = useState<boolean | null>(null);
@@ -150,6 +151,7 @@ export function AgenticPage() {
       const files = [...(res.locators || []), ...(res.pages || []), ...(res.tests || [])] as { path: string; content: string }[];
       setPayloadFiles(files);
       setPayloadSummary({ locators: res.locators?.length || 0, pages: res.pages?.length || 0, tests: res.tests?.length || 0 });
+      setTestDataMapping(res.testDataMapping || []);
     } catch (err: any) {
       toast({ status: "error", title: "Payload failed", description: String(err?.message || err) });
     } finally { setStreaming(false); }
@@ -208,6 +210,7 @@ export function AgenticPage() {
     const files = [...(res.locators || []), ...(res.pages || []), ...(res.tests || [])];
     setPayloadFiles(files);
     setPayloadSummary({ locators: res.locators?.length || 0, pages: res.pages?.length || 0, tests: res.tests?.length || 0 });
+    setTestDataMapping(res.testDataMapping || []);
   };
 
   // Removed unused validateMapping to avoid TS warning
@@ -375,6 +378,33 @@ export function AgenticPage() {
             <Button variant="outline" onClick={() => setHeadedMode(h => !h)}>{headedMode ? "Headed: On" : "Headed: Off"}</Button>
           </HStack>
           {payloadSummary && <Text color="gray.700">Files: locators {payloadSummary.locators}, pages {payloadSummary.pages}, tests {payloadSummary.tests}</Text>}
+          {testDataMapping.length > 0 && (
+            <Box borderWidth="1px" borderRadius="md" p={4} bg="blue.50">
+              <Heading size="sm" mb={3}>📊 Test Data Mapping</Heading>
+              <Text fontSize="sm" color="gray.600" mb={3}>Excel columns expected by this script</Text>
+              <Table size="sm" variant="simple">
+                <Thead>
+                  <Tr>
+                    <Th>Excel Column Name</Th>
+                    <Th>Action Type</Th>
+                    <Th>Occurrences</Th>
+                    <Th>Methods Used</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {testDataMapping.map((m, i) => (
+                    <Tr key={i}>
+                      <Td><Code>{m.columnName}</Code></Td>
+                      <Td><Badge colorScheme={m.actionType === 'fill' ? 'blue' : 'green'}>{m.actionType.toUpperCase()}</Badge></Td>
+                      <Td><Badge>{m.occurrences}x</Badge></Td>
+                      <Td>{m.methods.map(method => <Code key={method} mr={1}>{method}()</Code>)}</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+              <Text fontSize="xs" color="gray.500" mt={2}>💡 Tip: Click the ✏️ icon to rename any column. The scripts will automatically update with your changes! For dropdown fields, use the suffix " (dropdown)".</Text>
+            </Box>
+          )}
           {trialSuccess !== null && (
             <Box bg={trialSuccess ? "green.50" : "red.50"} borderRadius="md" p={3}>
               <Text fontWeight="semibold" color={trialSuccess ? "green.700" : "red.700"}>{trialSuccess ? "Trial Passed" : "Trial Failed"}</Text>
