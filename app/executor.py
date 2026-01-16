@@ -27,7 +27,8 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
     # Playwright treats positional args as regex. On Windows, backslashes can break the match.
     # Normalize to forward slashes so the regex matches the file path reliably.
     arg_path = tmp_path.replace("\\", "/")
-    base_args = ["test", arg_path, "--reporter=line"]
+    # base_args = ["test", arg_path, "--reporter=line"]
+    base_args = ["test", arg_path,]
     if headed:
         base_args.append("--headed")
 

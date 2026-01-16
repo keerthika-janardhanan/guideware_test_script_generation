@@ -1,4 +1,5 @@
 .env
+.venv
 .env.local
 frontend/.env
 frontend/.env.local
@@ -51,3 +52,5 @@ temp_*.json
 temp_*.py
 tmp_*.py
 tmp_*.ts
+zRun.bat
+

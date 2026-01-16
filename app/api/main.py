@@ -471,6 +471,7 @@ from .routers import files as r_files
 from .routers import config as r_config
 from .routers import vector as r_vector
 from .routers import data_mapping as r_data_mapping
+from .routers import metrics as r_metrics
 
 app.include_router(r_health.router)
 app.include_router(r_manual.router)
@@ -483,6 +484,7 @@ app.include_router(r_files.router)
 app.include_router(r_config.router)
 app.include_router(r_vector.router)
 app.include_router(r_data_mapping.router)
+app.include_router(r_metrics.router)
 
 
 @app.get("/data-mapping-ui")

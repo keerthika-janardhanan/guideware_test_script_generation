@@ -31,14 +31,11 @@ import {
   GitBranch,
   Edit2,
   Save,
-  X,
-  BarChart3
+  X
 } from 'lucide-react';
-import { TestMetricsDashboard } from './TestMetricsDashboard';
 
 type FlowStep = 
   | 'home' 
-  | 'dashboard'
   | 'admin-home'
   | 'admin-jira'
   | 'admin-website'
@@ -100,6 +97,11 @@ export function HorizontalFlowLayout({ initialStep = 'home' }: HorizontalFlowLay
   const [streamingPayload, setStreamingPayload] = useState(false);
   const [payloadProgress, setPayloadProgress] = useState<string>('');
   const [payloadFiles, setPayloadFiles] = useState<any[]>([]);
+  const [testDataMapping, setTestDataMapping] = useState<any[]>([]);
+  const [activeCodeTab, setActiveCodeTab] = useState<'locators' | 'pages' | 'tests'>('tests');
+  const [editingColumnName, setEditingColumnName] = useState<number | null>(null);
+  const [editedColumnValue, setEditedColumnValue] = useState<string>('');
+  const [regeneratingScript, setRegeneratingScript] = useState(false);
   
   // TestManager fields
   const [testCaseId, setTestCaseId] = useState<string>('');
@@ -249,10 +251,6 @@ export function HorizontalFlowLayout({ initialStep = 'home' }: HorizontalFlowLay
   const handleExecuteClick = () => {
     // Show execute flow selection screen
     setCurrentStep('execute-choice');
-  };
-
-  const handleDashboardClick = () => {
-    setCurrentStep('dashboard');
   };
 
   const handleExecuteManualSelect = async (flowSlug: string) => {
@@ -757,7 +755,11 @@ export function HorizontalFlowLayout({ initialStep = 'home' }: HorizontalFlowLay
       // Store payload files for persist
       setPayloadFiles(allFiles);
       
+      // Store test data mapping for UI display
+      setTestDataMapping(data.testDataMapping || []);
+      
       console.log('All files:', allFiles);
+      console.log('Test data mapping:', data.testDataMapping);
       
       // Find the test file
       const testFile = allFiles.find((f: any) => 
@@ -829,6 +831,107 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
   await expect(page).toHaveURL(/.*/);
 });
 `;
+  };
+
+  // Handler for editing column names in test data mapping
+  const handleEditColumnName = (idx: number) => {
+    setEditingColumnName(idx);
+    setEditedColumnValue(testDataMapping[idx].columnName);
+  };
+
+  const handleSaveColumnName = async (idx: number) => {
+    if (!editedColumnValue.trim()) {
+      alert('Column name cannot be empty');
+      return;
+    }
+
+    // Update the mapping
+    const updatedMapping = [...testDataMapping];
+    const oldColumnName = updatedMapping[idx].columnName;
+    updatedMapping[idx] = { ...updatedMapping[idx], columnName: editedColumnValue.trim() };
+    setTestDataMapping(updatedMapping);
+    setEditingColumnName(null);
+    
+    // Regenerate scripts with updated column names
+    setRegeneratingScript(true);
+    try {
+      // Update payload files with new column names
+      const updatedFiles = payloadFiles.map((file: any) => {
+        let content = file.content;
+        
+        // Replace column names in the code (case-sensitive string replacement)
+        content = content.replace(new RegExp(`"${oldColumnName}"`, 'g'), `"${editedColumnValue.trim()}"`);
+        content = content.replace(new RegExp(`'${oldColumnName}'`, 'g'), `'${editedColumnValue.trim()}'`);
+        
+        return { ...file, content };
+      });
+
+      setPayloadFiles(updatedFiles);
+      
+      // Update the displayed test script
+      const testFile = updatedFiles.find((f: any) => 
+        f.path.includes('tests/') || f.path.endsWith('.spec.ts')
+      );
+      if (testFile) {
+        setGeneratedScript(testFile.content);
+      }
+    } catch (error) {
+      console.error('Error regenerating scripts:', error);
+      alert('Failed to update scripts with new column names');
+    } finally {
+      setRegeneratingScript(false);
+    }
+  };
+
+  const handleCancelEditColumnName = () => {
+    setEditingColumnName(null);
+    setEditedColumnValue('');
+  };
+
+  const handleDeleteTestDataMapping = async (idx: number) => {
+    const mappingToDelete = testDataMapping[idx];
+    const confirmed = window.confirm(
+      `Delete mapping for "${mappingToDelete.columnName}"?\n\nThis will remove all references from the generated scripts.`
+    );
+    
+    if (!confirmed) return;
+
+    // Remove from mapping
+    const updatedMapping = testDataMapping.filter((_: any, i: number) => i !== idx);
+    setTestDataMapping(updatedMapping);
+    
+    // Regenerate scripts without this column
+    setRegeneratingScript(true);
+    try {
+      const columnToRemove = mappingToDelete.columnName;
+      const updatedFiles = payloadFiles.map((file: any) => {
+        let content = file.content;
+        
+        // Remove lines that reference this column
+        const lines = content.split('\n');
+        const filteredLines = lines.filter((line: string) => {
+          // Check if line contains references to the column
+          return !line.includes(`"${columnToRemove}"`) && !line.includes(`'${columnToRemove}'`);
+        });
+        
+        return { ...file, content: filteredLines.join('\n') };
+      });
+
+      setPayloadFiles(updatedFiles);
+      
+      // Update the displayed test script
+      const testFile = updatedFiles.find((f: any) => 
+        f.path.includes('tests/') || f.path.endsWith('.spec.ts')
+      );
+      if (testFile) {
+        setGeneratedScript(testFile.content);
+      }
+    } catch (error) {
+      console.error('Error regenerating scripts after delete:', error);
+      alert('Failed to update scripts after deletion');
+    } finally {
+      setRegeneratingScript(false);
+    }
   };
 
   const handleContinueToTestManager = async () => {
@@ -1383,93 +1486,42 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                 Admin
               </motion.button>
               
-              <div className="w-full max-w-7xl mx-auto px-8 min-h-screen flex flex-col justify-center">
+              <div className="container mx-auto">
                 <motion.div
                   initial={{ opacity: 0, y: -80 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 1.2, delay: 0.3 }}
-                  className="text-center mb-12"
+                  className="text-center mb-24"
                 >
-                  <h1 className="text-5xl lg:text-6xl xl:text-7xl font-bold mb-4 bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent">
+                  <h1 className="text-8xl font-bold mb-8 bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent">
                     ESAN
                   </h1>
-                  <p className="text-xl lg:text-2xl text-gray-300 font-light">Test Script Automation Studio</p>
+                  <p className="text-3xl text-gray-300 font-light">Test Script Automation Studio </p>
                 </motion.div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <div className="grid md:grid-cols-2 gap-16 max-w-6xl mx-auto">
                   {/* Design Card */}
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.4, type: 'spring', stiffness: 100 }}
-                    whileHover={{ scale: 1.05, y: -10 }}
-                    whileTap={{ scale: 0.95 }}
+                  <ChoiceCard
+                    icon={<Lightbulb size={100} />}
+                    title="DESIGN"
+                    subtitle="Create tests"
+                    color="blue"
                     onClick={handleDesignClick}
-                    className="group relative cursor-pointer p-12 min-h-[400px] rounded-3xl bg-gradient-to-br from-blue-500/10 via-blue-600/20 to-cyan-500/10 border-2 border-blue-500/30 hover:border-blue-400/60 backdrop-blur-xl transition-all duration-500 shadow-2xl hover:shadow-blue-500/30"
-                  >
-                    <div className="flex flex-col items-center text-center h-full justify-center">
-                      <div className="mb-8 p-8 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-600 shadow-xl group-hover:shadow-2xl transition-all duration-500">
-                        <Lightbulb className="w-16 h-16 lg:w-20 lg:h-20 text-white" />
-                      </div>
-                      <h3 className="text-3xl lg:text-4xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                        DESIGN
-                      </h3>
-                      <p className="text-gray-400 text-base lg:text-lg">Create tests</p>
-                    </div>
-                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-blue-500 via-cyan-500 to-blue-600 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500" />
-                  </motion.div>
+                    delay={0.6}
+                  />
 
                   {/* Execute Card */}
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.6, type: 'spring', stiffness: 100 }}
-                    whileHover={{ scale: 1.05, y: -10 }}
-                    whileTap={{ scale: 0.95 }}
+                  <ChoiceCard
+                    icon={<Play size={100} fill="currentColor" />}
+                    title="EXECUTE"
+                    subtitle="Run suites"
+                    color="purple"
                     onClick={handleExecuteClick}
-                    className="group relative cursor-pointer p-12 min-h-[400px] rounded-3xl bg-gradient-to-br from-purple-500/10 via-purple-600/20 to-pink-500/10 border-2 border-purple-500/30 hover:border-purple-400/60 backdrop-blur-xl transition-all duration-500 shadow-2xl hover:shadow-purple-500/30"
-                  >
-                    <div className="flex flex-col items-center text-center h-full justify-center">
-                      <div className="mb-8 p-8 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-600 shadow-xl group-hover:shadow-2xl transition-all duration-500">
-                        <Play className="w-16 h-16 lg:w-20 lg:h-20 text-white" fill="currentColor" />
-                      </div>
-                      <h3 className="text-3xl lg:text-4xl font-bold mb-3 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                        EXECUTE
-                      </h3>
-                      <p className="text-gray-400 text-base lg:text-lg">Run suites</p>
-                    </div>
-                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-purple-500 via-pink-500 to-purple-600 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500" />
-                  </motion.div>
-
-                  {/* Dashboard Card */}
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.8, type: 'spring', stiffness: 100 }}
-                    whileHover={{ scale: 1.05, y: -10 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleDashboardClick}
-                    className="group relative cursor-pointer p-12 min-h-[400px] rounded-3xl bg-gradient-to-br from-cyan-500/10 via-teal-600/20 to-emerald-500/10 border-2 border-cyan-500/30 hover:border-cyan-400/60 backdrop-blur-xl transition-all duration-500 shadow-2xl hover:shadow-cyan-500/30"
-                  >
-                    <div className="flex flex-col items-center text-center h-full justify-center">
-                      <div className="mb-8 p-8 rounded-2xl bg-gradient-to-br from-cyan-500 to-emerald-600 shadow-xl group-hover:shadow-2xl transition-all duration-500">
-                        <BarChart3 className="w-16 h-16 lg:w-20 lg:h-20 text-white" />
-                      </div>
-                      <h3 className="text-3xl lg:text-4xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text text-transparent">
-                        DASHBOARD
-                      </h3>
-                      <p className="text-gray-400 text-base lg:text-lg">View metrics & insights</p>
-                    </div>
-                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-600 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500" />
-                  </motion.div>
+                    delay={0.8}
+                  />
                 </div>
               </div>
             </motion.div>
-          )}
-
-          {/* DASHBOARD SCREEN */}
-          {currentStep === 'dashboard' && (
-            <TestMetricsDashboard onBack={() => setCurrentStep('home')} />
           )}
 
           {/* ADMIN HOME SCREEN */}
@@ -3316,25 +3368,264 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
               transition={{ duration: 0.8, type: 'spring', stiffness: 50 }}
               className="w-full px-6"
             >
-              <div className="max-w-4xl mx-auto">
+              <div className="max-w-7xl mx-auto">
                 <h2 className="text-5xl font-bold mb-12 text-center text-white">Generated Test Script</h2>
                 
-                <div className="bg-gradient-to-br from-green-900/40 to-emerald-600/20 backdrop-blur-xl border-2 border-green-500/30 rounded-3xl p-12">
-                  <div className="mb-8">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-xl font-semibold text-white">Playwright TypeScript Code</h4>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm hover:bg-white/20 transition-all"
-                      >
-                        📋 Copy Code
-                      </motion.button>
+                <div className="bg-gradient-to-br from-green-900/50 to-emerald-700/30 backdrop-blur-2xl border-2 border-green-400/40 rounded-3xl p-16 shadow-2xl">
+                  
+                  {/* Test Data Mapping Section - Expanded */}
+                  {testDataMapping && testDataMapping.length > 0 && (
+                    <div className="mb-10 bg-gradient-to-br from-blue-900/30 to-cyan-800/20 border-2 border-blue-400/30 rounded-2xl p-8">
+                      <div className="flex items-center justify-between mb-6">
+                        <h4 className="text-2xl font-bold text-white flex items-center gap-3">
+                          <span className="text-3xl">📊</span>
+                          Test Data Mapping
+                        </h4>
+                        <span className="text-sm text-blue-200 bg-blue-500/20 px-4 py-2 rounded-full border border-blue-400/30">
+                          Excel columns expected by this script
+                        </span>
+                      </div>
+                      <div className="bg-black/40 rounded-xl p-8 border border-blue-400/20">
+                        <table className="w-full text-base">
+                          <thead>
+                            <tr className="border-b-2 border-blue-400/40">
+                              <th className="text-left py-4 px-4 font-bold text-blue-200">Excel Column Name</th>
+                              <th className="text-center py-4 px-4 font-bold text-blue-200">Action Type</th>
+                              <th className="text-center py-4 px-4 font-bold text-blue-200">Occurrences</th>
+                              <th className="text-left py-4 px-4 font-bold text-blue-200">Methods Used</th>
+                              <th className="text-center py-4 px-4 font-bold text-blue-200">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {testDataMapping.map((mapping: any, idx: number) => (
+                              <tr key={idx} className="border-b border-blue-400/20 hover:bg-blue-500/10 transition-colors">
+                                <td className="py-4 px-4">
+                                  {editingColumnName === idx ? (
+                                    <input
+                                      type="text"
+                                      value={editedColumnValue}
+                                      onChange={(e) => setEditedColumnValue(e.target.value)}
+                                      className="w-full px-3 py-2 bg-black/60 border-2 border-blue-400/60 rounded-lg text-white font-mono font-semibold text-lg focus:outline-none focus:border-blue-400"
+                                      autoFocus
+                                      disabled={regeneratingScript}
+                                    />
+                                  ) : (
+                                    <span className="font-mono text-white font-semibold text-lg">{mapping.columnName}</span>
+                                  )}
+                                </td>
+                                <td className="text-center py-4 px-4">
+                                  <span className={`px-3 py-2 rounded-lg text-sm font-semibold ${
+                                    mapping.actionType === 'fill' ? 'bg-blue-500/30 text-blue-200 border border-blue-400/40' :
+                                    mapping.actionType === 'select' ? 'bg-purple-500/30 text-purple-200 border border-purple-400/40' :
+                                    'bg-gray-500/30 text-gray-200 border border-gray-400/40'
+                                  }`}>
+                                    {mapping.actionType.toUpperCase()}
+                                  </span>
+                                </td>
+                                <td className="text-center py-4 px-4">
+                                  <span className="inline-block bg-cyan-500/20 text-cyan-200 px-3 py-1 rounded-full font-semibold border border-cyan-400/30">
+                                    {mapping.occurrences}x
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 text-green-300 text-sm">
+                                  {mapping.methods && mapping.methods.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {mapping.methods.map((method: string, mIdx: number) => (
+                                        <span key={mIdx} className="bg-green-500/20 px-2 py-1 rounded border border-green-400/30 font-mono text-xs">
+                                          {method}()
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : '-'}
+                                </td>
+                                <td className="text-center py-4 px-4">
+                                  {editingColumnName === idx ? (
+                                    <div className="flex items-center justify-center gap-2">
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={() => handleSaveColumnName(idx)}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-green-600 rounded-lg text-white hover:bg-green-700 disabled:opacity-50 border border-green-400/40"
+                                        title="Save"
+                                      >
+                                        {regeneratingScript ? <Loader2 size={16} className="animate-spin" /> : '✓'}
+                                      </motion.button>
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={handleCancelEditColumnName}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-red-600 rounded-lg text-white hover:bg-red-700 disabled:opacity-50 border border-red-400/40"
+                                        title="Cancel"
+                                      >
+                                        ✕
+                                      </motion.button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-center gap-2">
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={() => handleEditColumnName(idx)}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-blue-600/50 rounded-lg text-white hover:bg-blue-600 border border-blue-400/40 disabled:opacity-50"
+                                        title="Edit column name"
+                                      >
+                                        ✏️
+                                      </motion.button>
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={() => handleDeleteTestDataMapping(idx)}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-red-600/50 rounded-lg text-white hover:bg-red-600 border border-red-400/40 disabled:opacity-50"
+                                        title="Delete mapping"
+                                      >
+                                        🗑️
+                                      </motion.button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-400/30 rounded-lg">
+                          <p className="text-sm text-yellow-200 flex items-start gap-2">
+                            <span className="text-lg">💡</span>
+                            <span>
+                              <strong>Tip:</strong> Click the ✏️ icon to rename any column or 🗑️ to delete it. The scripts will automatically update with your changes!
+                              For dropdown fields, you can use the suffix "(dropdown)". For common/reusable values, use "(common)".
+                            </span>
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="bg-black/30 rounded-lg p-6 max-h-96 overflow-y-auto">
-                      <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">
-                        {generatedScript || '// Generated script will appear here...'}
-                      </pre>
+                  )}
+                  
+                  {/* Generated Files - Tabbed View */}
+                  <div className="mb-10">
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className="text-2xl font-bold text-white flex items-center gap-3">
+                        <span className="text-3xl">📝</span>
+                        Playwright TypeScript Code
+                      </h4>
+                    </div>
+                    
+                    {/* Tabs for Locators, Pages, Tests */}
+                    <div className="bg-black/40 rounded-xl border border-green-400/30 overflow-hidden">
+                      {/* Tab Headers */}
+                      <div className="flex border-b border-green-400/30 bg-black/30">
+                        {payloadFiles.filter((f: any) => f.path.includes('locators/')).length > 0 && (
+                          <button
+                            onClick={() => setActiveCodeTab('locators')}
+                            className={`flex-1 px-6 py-4 font-semibold transition-all ${
+                              activeCodeTab === 'locators'
+                                ? 'bg-green-500/20 text-green-200 border-b-2 border-green-400'
+                                : 'text-green-400/60 hover:bg-green-500/10 hover:text-green-300'
+                            }`}
+                          >
+                            📍 Locators
+                          </button>
+                        )}
+                        {payloadFiles.filter((f: any) => f.path.includes('pages/')).length > 0 && (
+                          <button
+                            onClick={() => setActiveCodeTab('pages')}
+                            className={`flex-1 px-6 py-4 font-semibold transition-all ${
+                              activeCodeTab === 'pages'
+                                ? 'bg-green-500/20 text-green-200 border-b-2 border-green-400'
+                                : 'text-green-400/60 hover:bg-green-500/10 hover:text-green-300'
+                            }`}
+                          >
+                            📄 Page Objects
+                          </button>
+                        )}
+                        {payloadFiles.filter((f: any) => f.path.includes('tests/') || f.path.endsWith('.spec.ts')).length > 0 && (
+                          <button
+                            onClick={() => setActiveCodeTab('tests')}
+                            className={`flex-1 px-6 py-4 font-semibold transition-all ${
+                              activeCodeTab === 'tests'
+                                ? 'bg-green-500/20 text-green-200 border-b-2 border-green-400'
+                                : 'text-green-400/60 hover:bg-green-500/10 hover:text-green-300'
+                            }`}
+                          >
+                            🧪 Test Specs
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Tab Content */}
+                      <div className="p-6">
+                        {activeCodeTab === 'locators' && (
+                          <div>
+                            {payloadFiles.filter((f: any) => f.path.includes('locators/')).map((file: any, idx: number) => (
+                              <div key={idx} className="mb-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm text-green-300 font-mono">{file.path}</span>
+                                  <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => navigator.clipboard.writeText(file.content)}
+                                    className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
+                                  >
+                                    📋 Copy
+                                  </motion.button>
+                                </div>
+                                <div className="bg-black/50 rounded-lg p-6 max-h-[500px] overflow-y-auto">
+                                  <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {activeCodeTab === 'pages' && (
+                          <div>
+                            {payloadFiles.filter((f: any) => f.path.includes('pages/')).map((file: any, idx: number) => (
+                              <div key={idx} className="mb-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm text-green-300 font-mono">{file.path}</span>
+                                  <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => navigator.clipboard.writeText(file.content)}
+                                    className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
+                                  >
+                                    📋 Copy
+                                  </motion.button>
+                                </div>
+                                <div className="bg-black/50 rounded-lg p-6 max-h-[500px] overflow-y-auto">
+                                  <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {activeCodeTab === 'tests' && (
+                          <div>
+                            {payloadFiles.filter((f: any) => f.path.includes('tests/') || f.path.endsWith('.spec.ts')).map((file: any, idx: number) => (
+                              <div key={idx} className="mb-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm text-green-300 font-mono">{file.path}</span>
+                                  <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => navigator.clipboard.writeText(file.content)}
+                                    className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
+                                  >
+                                    📋 Copy
+                                  </motion.button>
+                                </div>
+                                <div className="bg-black/50 rounded-lg p-6 max-h-[500px] overflow-y-auto">
+                                  <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                   
