@@ -46,5 +46,5 @@ async def upload(
     if os.path.commonpath([str(repo_root.resolve()), str(dest)]) != str(repo_root.resolve()):
         raise HTTPException(status_code=400, detail="Invalid framework path")
     dest.write_bytes(bytes(data))
-    rel = str(dest.relative_to(repo_root)).replace("\\", "/")
-    return {"path": rel}
+    # Return just the filename without the data/ prefix for testmanager compatibility
+    return {"path": safe_name}

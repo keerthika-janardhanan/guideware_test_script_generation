@@ -305,8 +305,29 @@ def _describe_step(flow_name: str, step: Dict[str, object], previous_url: Option
     text_value = _extract_text(selector or "")
     placeholder = _extract_placeholder(selector or "")
     data_testid = _extract_data_testid(selector or "")
+    
+    # Extract better names from CSS selectors
+    css_name = None
+    if selector and "#" in selector:
+        # Extract ID from CSS selector
+        id_match = re.search(r'#([a-zA-Z][\w-]*)', selector)
+        if id_match:
+            css_id = id_match.group(1)
+            # Convert camelCase or kebab-case to readable name
+            if 'Button' in css_id or 'button' in css_id.lower():
+                css_name = css_id.replace('Button', ' Button').replace('button', ' button').strip()
+            elif 'Submit' in css_id or 'submit' in css_id.lower():
+                css_name = 'Submit button'
+            elif 'Next' in css_id or 'next' in css_id.lower():
+                css_name = 'Next button'
+            elif 'username' in css_id.lower():
+                css_name = 'Username field'
+            elif 'password' in css_id.lower():
+                css_name = 'Password field'
+            elif 'email' in css_id.lower():
+                css_name = 'Email field'
 
-    human_name = name or label or text_value or placeholder or data_testid or "element"
+    human_name = name or label or text_value or placeholder or css_name or data_testid or "element"
     role_phrase = _role_to_phrase(role)
     action_hint = ""
     navigation_text = ""
@@ -320,10 +341,32 @@ def _describe_step(flow_name: str, step: Dict[str, object], previous_url: Option
         expected_text = "Target page is displayed."
         action_hint = "navigate"
     elif action_raw in {"click", "press"}:
-        navigation_text = f"Click the {human_name} {role_phrase}".strip()
+        # Improve click descriptions
+        if human_name == "element":
+            # Try to infer from selector
+            if selector and 'submit' in selector.lower():
+                human_name = "Submit button"
+            elif selector and 'next' in selector.lower():
+                human_name = "Next button"
+            elif selector and 'button' in selector.lower():
+                human_name = "button"
+        
+        if role_phrase == "element" and human_name != "element":
+            navigation_text = f"Click {human_name}"
+        else:
+            navigation_text = f"Click the {human_name} {role_phrase}".strip()
         expected_text = _expected_from_navigation(navigation_text, "Element responds as expected.")
         action_hint = "click"
     elif action_raw in {"fill", "type"}:
+        # Improve fill descriptions
+        if human_name == "element":
+            if selector and 'username' in selector.lower():
+                human_name = "username"
+            elif selector and 'password' in selector.lower():
+                human_name = "password"
+            elif selector and 'email' in selector.lower():
+                human_name = "email"
+        
         navigation_text = f"Enter {human_name}"
         data_examples = f"{human_name}: {_mask_secret(human_name, value or '<value>')}"
         expected_text = "Field captures the entered data."

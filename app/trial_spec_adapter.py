@@ -248,7 +248,17 @@ def _add_login_page_wait(source: str) -> Tuple[str, bool]:
     return source, False
 
 
-def _inject_parallel_data_resolver(source: str) -> Tuple[str, bool]:
+def _fix_data_path_handling(source: str) -> Tuple[str, bool]:
+    """Fix data file path handling to remove 'data/' prefix from datasheet names."""
+    
+    # Direct string replacement approach - replace all occurrences of 'data/FNOL_claim.xlsx' with 'FNOL_claim.xlsx'
+    if "data/FNOL_claim.xlsx" in source:
+        updated = source.replace("data/FNOL_claim.xlsx", "FNOL_claim.xlsx")
+        logger.info("[TrialAdapter] Fixed data path: replaced 'data/FNOL_claim.xlsx' with 'FNOL_claim.xlsx'")
+        print("[TrialAdapter] Fixed data path: replaced 'data/FNOL_claim.xlsx' with 'FNOL_claim.xlsx'")
+        return updated, True
+    
+    return source, False
     """Inject parallel data resolver logic into test script."""
     import re
     
@@ -443,17 +453,32 @@ def adapt_spec_content_for_trial(source: str, repo_root: Path) -> Tuple[str, boo
     updated, strip_changed = _adjust_mfa_sequence(updated)
     changed_any |= strip_changed
 
+    updated, data_path_changed = _fix_data_path_handling(updated)
+    changed_any |= data_path_changed
+    
+    # Additional brute force fix - replace any remaining data/ references
+    if "data/" in updated:
+        before_count = updated.count("data/")
+        updated = updated.replace("'data/", "'")
+        updated = updated.replace('"data/', '"')
+        updated = updated.replace("`data/", "`")
+        after_count = updated.count("data/")
+        if before_count != after_count:
+            changed_any = True
+            logger.info(f"[TrialAdapter] Brute force fix: removed {before_count - after_count} 'data/' references")
+            print(f"[TrialAdapter] Brute force fix: removed {before_count - after_count} 'data/' references")
+
     summary = (
         f"\n[TrialAdapter] ===== Adaptation complete =====\n"
         f"[TrialAdapter] Total changes made: {changed_any}\n"
         f"[TrialAdapter] Changes breakdown:\n"
-        f"  - Parallel resolver injected: {resolver_changed}\n"
         f"  - Username replaced: {user_changed}\n"
         f"  - Password replaced: {pass_changed}\n"
         f"  - Navigation added: {nav_changed}\n"
         f"  - Login page wait added: {wait_changed}\n"
         f"  - Pause injected: {pause_changed}\n"
-        f"  - MFA adjusted: {strip_changed}"
+        f"  - MFA adjusted: {strip_changed}\n"
+        f"  - Data path fixed: {data_path_changed}"
     )
     print(summary)
     logger.info(summary)

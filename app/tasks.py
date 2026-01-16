@@ -109,7 +109,7 @@ def _build_recorder_command(
     cmd: List[str] = [
         sys.executable,
         "-m",
-        "app.run_playwright_recorder_v2",
+        "app.run_minimal_recorder",  # Changed to minimal recorder
         "--url",
         payload["url"],
         "--output-dir",
@@ -121,24 +121,13 @@ def _build_recorder_command(
     if flow_name:
         cmd.extend(["--flow-name", flow_name])
 
+    # Minimal recorder only supports browser, timeout, and headless
     value_flags = {
         "browser": "--browser",
-        "slowMo": "--slow-mo",
         "timeout": "--timeout",
-        "userAgent": "--user-agent",
-        "proxy": "--proxy",
     }
     bool_flags = {
         "headless": "--headless",
-        # disable flags
-        "noTrace": "--no-trace",
-        "noHar": "--no-har",
-        # enable flags
-        "captureDom": "--capture-dom",
-        "captureScreenshots": "--capture-screenshots",
-        "ignoreHttpsErrors": "--ignore-https-errors",
-        "disableGpu": "--disable-gpu",
-        "bypassCsp": "--bypass-csp",
     }
 
     for key, flag in value_flags.items():

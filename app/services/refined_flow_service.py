@@ -45,8 +45,14 @@ def load_recorder_metadata(session_dir: Path, attempts: int = 15, delay: float =
     for _ in range(max(attempts, 1)):
         if metadata_path.exists():
             try:
-                return json.loads(metadata_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+                data = json.loads(metadata_path.read_text(encoding="utf-8"))
+                # Ensure we return a dict, not a string
+                if not isinstance(data, dict):
+                    print(f"[ERROR] metadata.json contains {type(data).__name__}, expected dict")
+                    raise ValueError(f"metadata.json must contain a JSON object, got {type(data).__name__}")
+                return data
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] JSON decode error: {e}")
                 time.sleep(delay)
                 continue
         time.sleep(delay)
@@ -134,8 +140,12 @@ def finalize_recorder_session(session_dir: Path, metadata: Optional[Dict[str, An
         auto_result = auto_refine_and_ingest(str(session_dir), metadata)
         auto_status = "success"
     except Exception as exc:  # noqa: BLE001
+        import traceback
         auto_status = "error"
         auto_error = str(exc)
+        traceback_str = traceback.format_exc()
+        print(f"[ERROR] Auto-ingest failed: {exc}")
+        print(f"[ERROR] Traceback:\n{traceback_str}")
         warnings.append(f"Auto refine ingest failed: {exc}")
 
     return RecorderSessionResult(

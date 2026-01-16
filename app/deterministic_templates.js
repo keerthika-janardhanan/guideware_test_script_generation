@@ -217,6 +217,10 @@ function renderPlaywrightTemplate({
     `test.describe('${resolvedName}', () => {`,
     "  test('smoke', async ({ page }) => {",
     `    const flow = new ${pageClassName}(page);`,
+    "",
+    "    // Navigate to start URL",
+    `    await page.goto('${options.startUrl || "about:blank"}');`,
+    "",
   ];
 
   stepRefs.forEach((ref, index) => {
@@ -275,6 +279,7 @@ function renderFrameworkTemplate(options) {
   const steps = Array.isArray(options.steps) ? options.steps : [];
   const targetPath = options.targetPath;
   const suggestedFiles = options.suggestedFiles || [];
+  const startUrl = options.startUrl || options.original_url || "";
   switch (framework) {
     case "playwright":
     default:
@@ -284,6 +289,7 @@ function renderFrameworkTemplate(options) {
         steps,
         targetPath,
         suggestedFiles,
+        startUrl,
       });
   }
 }

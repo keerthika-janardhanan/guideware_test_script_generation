@@ -60,7 +60,7 @@ def ingest_refined_file(file_path: str, flow_name: str | None = None) -> dict:
     elements = data.get("elements") or []
     pages = data.get("pages") or []
     flow_name = flow_name or data.get("flow_name") or p.stem
-    flow_slug = _slugify(flow_name)
+    flow_slug = flow_name  # Use the original flow name as slug instead of slugifying
     original_url = data.get("original_url")  # Track if auth filtering was applied
 
     # Build a map of useful element info keyed by xpath/title/label for quick lookup

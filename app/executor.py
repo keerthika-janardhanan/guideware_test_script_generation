@@ -16,6 +16,11 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
         headed: Whether to append --headed.
         project_root: Root where Playwright config & node_modules live. Defaults to monorepo root.
     """
+    # Add Node.js to PATH if not already present
+    nodejs_path = r"C:\Program Files\nodejs"
+    if nodejs_path not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = nodejs_path + os.pathsep + os.environ.get("PATH", "")
+    
     project_root = project_root or Path(__file__).resolve().parents[2]
     cwd = str(project_root)
 

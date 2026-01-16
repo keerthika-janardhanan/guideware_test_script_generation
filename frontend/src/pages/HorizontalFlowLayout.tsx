@@ -888,6 +888,52 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
     setEditedColumnValue('');
   };
 
+  const handleDeleteTestDataMapping = async (idx: number) => {
+    const mappingToDelete = testDataMapping[idx];
+    const confirmed = window.confirm(
+      `Delete mapping for "${mappingToDelete.columnName}"?\n\nThis will remove all references from the generated scripts.`
+    );
+    
+    if (!confirmed) return;
+
+    // Remove from mapping
+    const updatedMapping = testDataMapping.filter((_: any, i: number) => i !== idx);
+    setTestDataMapping(updatedMapping);
+    
+    // Regenerate scripts without this column
+    setRegeneratingScript(true);
+    try {
+      const columnToRemove = mappingToDelete.columnName;
+      const updatedFiles = payloadFiles.map((file: any) => {
+        let content = file.content;
+        
+        // Remove lines that reference this column
+        const lines = content.split('\n');
+        const filteredLines = lines.filter((line: string) => {
+          // Check if line contains references to the column
+          return !line.includes(`"${columnToRemove}"`) && !line.includes(`'${columnToRemove}'`);
+        });
+        
+        return { ...file, content: filteredLines.join('\n') };
+      });
+
+      setPayloadFiles(updatedFiles);
+      
+      // Update the displayed test script
+      const testFile = updatedFiles.find((f: any) => 
+        f.path.includes('tests/') || f.path.endsWith('.spec.ts')
+      );
+      if (testFile) {
+        setGeneratedScript(testFile.content);
+      }
+    } catch (error) {
+      console.error('Error regenerating scripts after delete:', error);
+      alert('Failed to update scripts after deletion');
+    } finally {
+      setRegeneratingScript(false);
+    }
+  };
+
   const handleContinueToTestManager = async () => {
     // Navigate to testmanager form and load existing data
     try {
@@ -3417,15 +3463,28 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                                       </motion.button>
                                     </div>
                                   ) : (
-                                    <motion.button
-                                      whileHover={{ scale: 1.1 }}
-                                      whileTap={{ scale: 0.9 }}
-                                      onClick={() => handleEditColumnName(idx)}
-                                      className="p-2 bg-blue-600/50 rounded-lg text-white hover:bg-blue-600 border border-blue-400/40"
-                                      title="Edit column name"
-                                    >
-                                      ✏️
-                                    </motion.button>
+                                    <div className="flex items-center justify-center gap-2">
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={() => handleEditColumnName(idx)}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-blue-600/50 rounded-lg text-white hover:bg-blue-600 border border-blue-400/40 disabled:opacity-50"
+                                        title="Edit column name"
+                                      >
+                                        ✏️
+                                      </motion.button>
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={() => handleDeleteTestDataMapping(idx)}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-red-600/50 rounded-lg text-white hover:bg-red-600 border border-red-400/40 disabled:opacity-50"
+                                        title="Delete mapping"
+                                      >
+                                        🗑️
+                                      </motion.button>
+                                    </div>
                                   )}
                                 </td>
                               </tr>
@@ -3436,7 +3495,7 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                           <p className="text-sm text-yellow-200 flex items-start gap-2">
                             <span className="text-lg">💡</span>
                             <span>
-                              <strong>Tip:</strong> Click the ✏️ icon to rename any column. The scripts will automatically update with your changes!
+                              <strong>Tip:</strong> Click the ✏️ icon to rename any column or 🗑️ to delete it. The scripts will automatically update with your changes!
                               For dropdown fields, you can use the suffix "(dropdown)". For common/reusable values, use "(common)".
                             </span>
                           </p>

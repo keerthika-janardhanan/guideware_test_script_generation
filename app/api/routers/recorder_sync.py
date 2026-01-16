@@ -44,38 +44,23 @@ def _build_recorder_command(session_id: str, url: str, flow_name: str, options: 
     cmd = [
         sys.executable,
         "-m",
-        "app.run_playwright_recorder_v2",
+        "app.run_minimal_recorder",  # Changed to minimal recorder
         "--url",
         url,
         "--output-dir",
         str(RECORDINGS_DIR),
         "--session-name",
         session_id,
-        "--flow-name",
-        flow_name,
     ]
     
-    # Add boolean flags
-    if options.get("captureDom", True):
-        cmd.append("--capture-dom")
-    if options.get("captureScreenshots", True):
-        cmd.append("--capture-screenshots")
+    # Minimal recorder only supports browser, timeout, and headless
     if options.get("headless", False):
         cmd.append("--headless")
-    if options.get("noTrace", False):
-        cmd.append("--no-trace")
-    if options.get("noHar", False):
-        cmd.append("--no-har")
     
-    # Add value flags
     if "browser" in options:
         cmd.extend(["--browser", options["browser"]])
     if "timeout" in options:
         cmd.extend(["--timeout", str(options["timeout"])])
-    if "slowMo" in options:
-        cmd.extend(["--slow-mo", str(options["slowMo"])])
-    if "userAgent" in options:
-        cmd.extend(["--user-agent", options["userAgent"]])
     
     return cmd
 
@@ -115,17 +100,28 @@ async def start_sync(req: RecorderStartRequest) -> RecorderStartResponse:
     print(f"[Recorder] Options: {options}")
     
     try:
-        # Start process in background with detached stdout/stderr
-        # Use DEVNULL to prevent blocking on pipe buffers
-        # Don't use CREATE_NO_WINDOW - we want the browser window to be visible
+        # Start process in background with visible output for debugging
+        # Don't use DEVNULL so we can see what's happening
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             cwd=str(Path(__file__).parent.parent.parent.parent),  # Project root
+            text=True,
+            bufsize=1,  # Line buffered
         )
         
         print(f"[Recorder] Process started with PID: {process.pid}")
+        
+        # Stream output in background thread
+        def stream_output():
+            try:
+                for line in process.stdout:
+                    print(f"[Recorder:{session_id}] {line.rstrip()}")
+            except Exception as e:
+                print(f"[Recorder:{session_id}] Output stream error: {e}")
+        
+        threading.Thread(target=stream_output, daemon=True).start()
         
         # Store process
         with _RECORDER_LOCK:

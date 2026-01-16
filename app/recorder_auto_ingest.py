@@ -36,12 +36,17 @@ def _normalise_playwright_selector(selector: Any, element: Dict[str, Any]) -> st
             name = by_role.get("name")
             if role and name:
                 return f'getByRole("{role}", name="{name}")'
+        elif isinstance(by_role, str) and by_role.strip():
+            return by_role.strip()
         by_label = selector.get("byLabel")
-        if by_label:
-            return f'getByLabel("{by_label}")'
+        if isinstance(by_label, str) and by_label.strip():
+            return by_label.strip()
         by_text = selector.get("byText")
-        if by_text:
-            return f'getByText("{by_text}")'
+        if isinstance(by_text, str) and by_text.strip():
+            return by_text.strip()
+        by_placeholder = selector.get("byPlaceholder")
+        if isinstance(by_placeholder, str) and by_placeholder.strip():
+            return by_placeholder.strip()
     stable = element.get("stableSelector")
     if stable:
         return str(stable)
@@ -69,10 +74,22 @@ def _compose_locators(action: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     selectors = action.get("selectorStrategies") or {}
     element = action.get("element") or {}
 
-    playwright_selector = selectors.get("aria") or selectors.get("playwright") or element.get("playwright")
+    # New format: element.selector contains css/xpath/playwright
+    selector_obj = element.get("selector") or {}
+    
+    playwright_selector = (
+        selectors.get("aria") 
+        or selectors.get("playwright") 
+        or selector_obj.get("playwright")  # New format
+        or element.get("playwright")  # Old format
+    )
     playwright_str = _normalise_playwright_selector(playwright_selector, element)
-    css = selectors.get("css") or element.get("cssPath") or ""
-    xpath = selectors.get("xpath") or ""
+    
+    # CSS: try selectorStrategies first, then element.selector, then element.cssPath
+    css = selectors.get("css") or selector_obj.get("css") or element.get("cssPath") or ""
+    
+    # XPath: try selectorStrategies first, then element.selector, then element.xpath
+    xpath = selectors.get("xpath") or selector_obj.get("xpath") or ""
     element_xpath = element.get("xpath") or ""
     labels_raw = element.get("labels")
     if isinstance(labels_raw, (list, tuple, set)):
@@ -106,18 +123,21 @@ def _convert_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     action_type = (action.get("type") or action.get("action") or "").lower()
     extra = action.get("extra") or {}
     selectors = action.get("selectorStrategies") or {}
+    element = action.get("element") or {}
 
     mapped_action = None
     value = None
 
-    if action_type == "change":
+    # Handle minimal recorder format (input/change/click)
+    if action_type in ("change", "input"):
         mapped_action = "fill"
-        value = extra.get("valueMasked") or extra.get("value") or ""
+        # Try extra.value first (old format), then element.value (new format)
+        value = extra.get("valueMasked") or extra.get("value") or element.get("value") or ""
     elif action_type == "click":
         mapped_action = "click"
         value = ""
     elif action_type == "press":
-        key = extra.get("key") or extra.get("code")
+        key = extra.get("key") or extra.get("code") or element.get("key")
         if not key:
             return None
         mapped_action = "press"
@@ -126,11 +146,30 @@ def _convert_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     locators, element_label = _compose_locators(action)
-    selector = (
-        selectors.get("aria")
-        or selectors.get("playwright")
-        or locators.get("stable")
-    )
+    
+    # Handle minimal recorder selector format
+    selector_obj = element.get("selector") or {}
+    playwright_selectors = selector_obj.get("playwright") or {}
+    
+    # Only try to extract from playwright_selectors if it's a dict
+    selector = None
+    if isinstance(playwright_selectors, dict):
+        selector = (
+            playwright_selectors.get("byRole")
+            or playwright_selectors.get("byLabel")
+            or playwright_selectors.get("byText")
+            or playwright_selectors.get("byPlaceholder")
+        )
+    
+    # Fallback to other selector sources
+    if not selector:
+        selector = (
+            selector_obj.get("css")
+            or selector_obj.get("xpath")
+            or selectors.get("aria")
+            or selectors.get("playwright")
+            or locators.get("stable")
+        )
     if not selector:
         selector = locators.get("css") or locators.get("raw_xpath") or ""
 
@@ -154,8 +193,8 @@ def _convert_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "label": element_label,
         "role": locators.get("role", ""),
         "name": locators.get("name", "") or element_label,
-        "xpath": locators.get("raw_xpath", "") or locators.get("xpath", ""),
-        "css": locators.get("css", ""),
+        "xpath": selector_obj.get("xpath") or locators.get("raw_xpath", "") or locators.get("xpath", ""),
+        "css": selector_obj.get("css") or locators.get("css", ""),
         "heading": locators.get("heading", ""),
         "page_heading": locators.get("page_heading", ""),
     }
@@ -176,12 +215,12 @@ def _convert_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _filter_auth_steps(actions: List[Dict[str, Any]], original_url: Optional[str]) -> List[Dict[str, Any]]:
-    """Filter out Microsoft authentication steps before the original URL is reached.
+    """Filter out authentication steps before reaching the original URL.
     
-    If an original URL is provided (from UI), skip all actions until we encounter
-    a navigation to a URL that matches the original domain AND occurs after any
-    Microsoft/external authentication redirects. This removes Microsoft
-    authentication redirects from the recorded flow.
+    Strategy:
+    1. Identify auth domains (microsoft, okta, etc.)
+    2. Skip ALL actions until we're back on the target domain
+    3. Keep only actions on the target domain
     """
     if not original_url:
         return actions
@@ -189,53 +228,95 @@ def _filter_auth_steps(actions: List[Dict[str, Any]], original_url: Optional[str
     from urllib.parse import urlparse
     try:
         target_parsed = urlparse(original_url)
-        target_domain = target_parsed.netloc
+        target_domain = target_parsed.netloc.lower()
         if not target_domain:
             return actions
     except Exception:
         return actions
     
-    filtered = []
-    reached_original = False
-    saw_external_domain = False
+    # Auth provider patterns
+    auth_patterns = [
+        'login.microsoftonline',
+        'microsoftonline.com',
+        'login.microsoft',
+        'okta.com',
+        'auth0.com',
+        'oauth',
+        'sso.',
+        'saml',
+    ]
     
+    filtered = []
     for action in actions:
         page_url = action.get("pageUrl") or ""
         
-        # Track if we've seen an external authentication domain
-        if not saw_external_domain:
-            try:
-                current_domain = urlparse(page_url).netloc
-                # Check if this is a different domain (likely auth provider)
-                if current_domain and current_domain != target_domain:
-                    # Common auth providers
-                    if any(auth in current_domain.lower() for auth in ['login.', 'auth.', 'oauth', 'sso.', 'microsoftonline']):
-                        saw_external_domain = True
-            except Exception:
-                pass
-        
-        # Check if we've reached back to the original URL domain after seeing external auth
-        if not reached_original and saw_external_domain:
-            try:
-                current_domain = urlparse(page_url).netloc
-                # We're back on the target domain after external authentication
-                if target_domain in current_domain or current_domain in target_domain:
-                    reached_original = True
-            except Exception:
-                pass
-        
-        # Once we've reached the original URL after auth, include all subsequent actions
-        if reached_original:
+        try:
+            current_domain = urlparse(page_url).netloc.lower()
+            
+            # Skip if on auth domain
+            if any(pattern in current_domain for pattern in auth_patterns):
+                continue
+            
+            # Keep if on target domain or subdomain
+            if target_domain in current_domain or current_domain in target_domain:
+                filtered.append(action)
+        except Exception:
+            # If URL parsing fails, keep the action
             filtered.append(action)
     
-    # If we never saw external auth, keep all actions (no filtering needed)
-    return filtered if (saw_external_domain and filtered) else actions
+    return filtered if filtered else actions
+
+
+def _deduplicate_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove duplicate actions by comparing CSS and XPath selectors.
+    
+    Simple strategy: If two consecutive actions have the same CSS or XPath, keep only the last one.
+    """
+    if not actions:
+        return []
+    
+    def _get_selectors(act: Dict[str, Any]) -> Tuple[str, str]:
+        """Extract CSS and XPath from action."""
+        elem = act.get("element") or {}
+        sel = elem.get("selector") or {}
+        css = sel.get("css") or elem.get("cssPath") or ""
+        xpath = sel.get("xpath") or elem.get("xpath") or ""
+        return (str(css), str(xpath))
+    
+    deduplicated = []
+    i = 0
+    
+    while i < len(actions):
+        current = actions[i]
+        current_css, current_xpath = _get_selectors(current)
+        
+        # Look ahead to find duplicates with same CSS or XPath
+        j = i + 1
+        while j < len(actions):
+            next_action = actions[j]
+            next_css, next_xpath = _get_selectors(next_action)
+            
+            # If CSS or XPath matches, it's the same element
+            if (current_css and current_css == next_css) or (current_xpath and current_xpath == next_xpath):
+                j += 1  # Skip to next
+            else:
+                break  # Different element, stop looking
+        
+        # Add the last action in the duplicate group
+        deduplicated.append(actions[j - 1])
+        i = j
+    
+    return deduplicated
 
 
 def build_refined_flow_from_metadata(
     metadata: Dict[str, Any],
     flow_name: Optional[str] = None,
 ) -> Dict[str, Any]:
+    # Ensure metadata is a dict, not a string
+    if isinstance(metadata, str):
+        raise ValueError(f"metadata must be a dict, got string: {metadata[:100]}")
+    
     actions = metadata.get("actions") or []
     if not actions:
         raise ValueError("Recorder metadata does not contain any actions.")
@@ -243,7 +324,6 @@ def build_refined_flow_from_metadata(
     resolved_flow_name = flow_name or metadata.get("flowName") or metadata.get("flow_name") or "Recorder Flow"
     
     # Sort actions by timestamp to ensure chronological order
-    # Some actions may arrive out of order due to async event capture
     def _get_timestamp(action: Dict[str, Any]) -> str:
         ts = action.get("timestamp") or action.get("timestampEpochMs") or action.get("receivedAt") or ""
         return str(ts)
@@ -251,21 +331,19 @@ def build_refined_flow_from_metadata(
     try:
         actions = sorted(actions, key=_get_timestamp)
     except Exception:
-        # If sorting fails, continue with original order
         pass
     
     # Get original URL from metadata options (provided by UI)
     options = metadata.get("options") or {}
     original_url = options.get("url") or options.get("originalUrl")
     
-    # Filter out authentication steps if original URL is provided
-    if original_url:
-        actions = _filter_auth_steps(actions, original_url)
-        if not actions:
-            raise ValueError(
-                f"No actions found after filtering authentication steps. "
-                f"The recorder may not have reached the original URL: {original_url}"
-            )
+    # DISABLED: Authentication filtering - keep all actions including auth steps
+    # Users can manually remove auth steps if needed
+    # if original_url:
+    #     actions = _filter_auth_steps(actions, original_url)
+    
+    # Remove consecutive duplicates while preserving sequence
+    actions = _deduplicate_actions(actions)
 
     converted: List[Dict[str, Any]] = []
     for action in actions:
@@ -332,6 +410,13 @@ def build_refined_flow_from_metadata(
     options = metadata.get("options") or {}
     original_url = options.get("url") or options.get("originalUrl")
     
+    # Handle pages field - can be dict or list
+    pages_data = metadata.get("pages") or {}
+    if isinstance(pages_data, dict):
+        pages_list = list(pages_data.values())
+    else:
+        pages_list = pages_data
+    
     refined_flow = {
         "refinedVersion": REFINED_VERSION,
         "flow_name": resolved_flow_name,
@@ -341,11 +426,11 @@ def build_refined_flow_from_metadata(
         "pages": [
             {
                 "pageId": page.get("pageId"),
-                "pageUrl": page.get("pageUrl"),
-                "pageTitle": page.get("pageTitle"),
+                "pageUrl": page.get("pageUrl") or page.get("url"),
+                "pageTitle": page.get("pageTitle") or page.get("title"),
                 "mainHeading": page.get("mainHeading"),
             }
-            for page in (metadata.get("pages") or [])
+            for page in pages_list
         ],
         "elements": list(elements_map.values()),
         "steps": refined_steps,
@@ -369,13 +454,13 @@ def auto_refine_and_ingest(
     
     refined_flow = build_refined_flow_from_metadata(metadata, flow_name=flow_name)
     
-    # Log filtering statistics if authentication filtering was applied
+    # Log filtering and deduplication statistics
+    refined_steps = len(refined_flow.get("steps") or [])
     if original_url:
-        refined_steps = len(refined_flow.get("steps") or [])
         filtered_count = total_actions - refined_steps
         if filtered_count > 0:
-            print(f"[auto_refine] Filtered {filtered_count} authentication steps before reaching {original_url}")
-            print(f"[auto_refine] Refined flow contains {refined_steps} steps starting from the target application")
+            print(f"[auto_refine] Filtered {filtered_count} authentication/duplicate steps")
+            print(f"[auto_refine] Refined flow contains {refined_steps} unique steps")
 
     resolved_flow_name = refined_flow["flow_name"]
     slug = slugify(resolved_flow_name)
@@ -407,5 +492,7 @@ def auto_refine_and_ingest(
         "ingest_stats": ingest_stats,
         "ingest_error": ingest_error,
         "original_url": original_url,
-        "filtered_auth_steps": total_actions - len(refined_flow.get("steps") or []) if original_url else 0,
+        "total_actions": total_actions,
+        "refined_steps": refined_steps,
+        "filtered_count": total_actions - refined_steps,
     }

@@ -470,6 +470,7 @@ from .routers import trial as r_trial
 from .routers import files as r_files
 from .routers import config as r_config
 from .routers import vector as r_vector
+from .routers import data_mapping as r_data_mapping
 
 app.include_router(r_health.router)
 app.include_router(r_manual.router)
@@ -481,6 +482,17 @@ app.include_router(r_trial.router)
 app.include_router(r_files.router)
 app.include_router(r_config.router)
 app.include_router(r_vector.router)
+app.include_router(r_data_mapping.router)
+
+
+@app.get("/data-mapping-ui")
+async def data_mapping_ui():
+    """Serve the data mapping UI."""
+    from fastapi.responses import HTMLResponse
+    template_path = Path(__file__).parent.parent.parent / "templates" / "data_mapping.html"
+    if template_path.exists():
+        return HTMLResponse(template_path.read_text(encoding="utf-8"))
+    raise HTTPException(status_code=404, detail="Template not found")
 
 
 if __name__ == "__main__":

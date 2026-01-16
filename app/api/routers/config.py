@@ -258,7 +258,7 @@ async def list_datasheets(frameworkRoot: str | None = None) -> dict:
         return {"files": []}
     try:
         files = [
-            p.relative_to(repo_root).as_posix()
+            p.name  # Return just the filename without data/ prefix
             for p in sorted(data_dir.glob("**/*"))
             if p.is_file() and p.suffix.lower() in {".xlsx", ".xls", ".csv"}
         ]

@@ -61,8 +61,7 @@ PAGE_INJECT_SCRIPT = """
     const capQ = []; const ctxQ = [];
     const sendCap = p => { if (!deliver('pythonRecorderCapture', p)) capQ.push(p); };
     const sendCtxI = p => { if (!deliver('pythonRecorderPageContext', p)) ctxQ.push(p); };
-    // Faster flush (50ms) to capture events before rapid redirects (e.g., MFA "Yes" clicks)
-    setInterval(() => { while (capQ.length && deliver('pythonRecorderCapture', capQ[0])) capQ.shift(); while (ctxQ.length && deliver('pythonRecorderPageContext', ctxQ[0])) ctxQ.shift(); }, 50);
+    setInterval(() => { while (capQ.length && deliver('pythonRecorderCapture', capQ[0])) capQ.shift(); while (ctxQ.length && deliver('pythonRecorderPageContext', ctxQ[0])) ctxQ.shift(); }, 200);
     const norm = n => (n && n.nodeType === Node.TEXT_NODE ? n.parentElement : (n && n.nodeType === Node.ELEMENT_NODE ? n : null));
     const targetOf = e => { try { if (e && typeof e.composedPath === 'function') { const p = e.composedPath(); if (p && p.length) { return p[0]; } } } catch(_) {} return e ? e.target : null; };
     const xp = el => { if (!el || el.nodeType !== 1) return ''; const s=[]; let n=el; while(n&&n.nodeType===1){let i=1;let b=n.previousSibling;while(b){if(b.nodeType===1&&b.nodeName===n.nodeName)i++; b=b.previousSibling;} s.unshift(`${n.nodeName.toLowerCase()}[${i}]`); n=n.parentNode&&n.parentNode.nodeType===1?n.parentNode:null;} return '/' + s.join('/'); };
@@ -351,11 +350,6 @@ PAGE_INJECT_SCRIPT = """
     };
     document.addEventListener('DOMContentLoaded', () => sendCtx('domcontentloaded'));
     window.addEventListener('load', () => sendCtx('load'));
-    // Force flush queued events before page unloads (e.g., MFA redirects)
-    window.addEventListener('beforeunload', () => {
-        while (capQ.length && deliver('pythonRecorderCapture', capQ[0])) capQ.shift();
-        while (ctxQ.length && deliver('pythonRecorderPageContext', ctxQ[0])) ctxQ.shift();
-    });
     // SPA route changes
     const _origPushState = history.pushState; const _origReplaceState = history.replaceState;
     history.pushState = function() { try { const r = _origPushState.apply(this, arguments); setTimeout(() => sendCtx('pushstate'), 0); return r; } catch(e) { return _origPushState.apply(this, arguments); } };
@@ -951,18 +945,8 @@ def main() -> None:
     parser.add_argument("--bypass-csp", action="store_true")
     parser.add_argument("--flow-name", default=None)
     parser.add_argument("--auth-state", default=None, help="Path to saved authentication state JSON file")
-    parser.add_argument("--hybrid-mode", action="store_true", help="Hybrid mode: capture only page details and element HTML (no HAR/trace/screenshots)")
 
     args = parser.parse_args()
-    
-    # Override settings for hybrid mode
-    if args.hybrid_mode:
-        print("[recorder] HYBRID MODE: Capturing only page details + element HTML")
-        args.no_har = True
-        args.no_trace = True
-        args.capture_screenshots = False
-        args.capture_dom = False  # Element HTML is already captured in actions
-    
     try:
         args.browser = normalize_browser_name(args.browser, SUPPORTED_BROWSERS)
     except ValueError as exc:
