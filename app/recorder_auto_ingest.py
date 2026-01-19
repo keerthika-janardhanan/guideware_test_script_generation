@@ -358,6 +358,7 @@ def _deduplicate_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def build_refined_flow_from_metadata(
     metadata: Dict[str, Any],
     flow_name: Optional[str] = None,
+    session_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     # Ensure metadata is a dict, not a string
     if isinstance(metadata, str):
@@ -367,7 +368,17 @@ def build_refined_flow_from_metadata(
     if not actions:
         raise ValueError("Recorder metadata does not contain any actions.")
 
-    resolved_flow_name = flow_name or metadata.get("flowName") or metadata.get("flow_name") or "Recorder Flow"
+    # Try to read flow name from flow_name.txt file first
+    flow_name_from_file = None
+    if session_dir:
+        flow_name_file = Path(session_dir) / "flow_name.txt"
+        if flow_name_file.exists():
+            try:
+                flow_name_from_file = flow_name_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    
+    resolved_flow_name = flow_name or flow_name_from_file or metadata.get("flowName") or metadata.get("flow_name") or metadata.get("flowId") or metadata.get("flow_id") or "Recorder Flow"
     
     # Sort actions by timestamp to ensure chronological order
     def _get_timestamp(action: Dict[str, Any]) -> str:
@@ -516,7 +527,7 @@ def auto_refine_and_ingest(
     )
     total_actions = len(metadata.get("actions") or [])
     
-    refined_flow = build_refined_flow_from_metadata(metadata, flow_name=flow_name)
+    refined_flow = build_refined_flow_from_metadata(metadata, flow_name=flow_name, session_dir=session_path)
     
     # Log filtering and deduplication statistics
     refined_steps = len(refined_flow.get("steps") or [])

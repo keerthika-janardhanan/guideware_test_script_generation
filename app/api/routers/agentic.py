@@ -516,6 +516,15 @@ async def trial_run_existing(req: TrialRunExistingRequest) -> TrialRunResponse:
     # The test code will access them via process.env.USERID, process.env.PASSWORD, etc.
     logger.info(f"[TrialRunExisting] Injecting trial credentials into environment")
     logger.info(f"[TrialRunExisting] Credentials: USERID={user[:20] if user else '<empty>'}, PASSWORD={'***' if pw else '<empty>'}, BASE_URL={base[:30] if base else '<empty>'}")
+    
+    # Add Node.js to PATH for subprocess
+    import os as _os
+    nodejs_path = r"C:\Program Files\nodejs"
+    if nodejs_path not in env_overrides.get("PATH", ""):
+        current_path = env_overrides.get("PATH", _os.environ.get("PATH", ""))
+        env_overrides["PATH"] = nodejs_path + _os.pathsep + current_path
+        logger.info(f"[TrialRunExisting] Added Node.js to PATH: {nodejs_path}")
+    
     # Best-effort clean previous results to avoid artifact collisions across sequential/parallel runs
     try:
         results_dir = root / 'test-results'

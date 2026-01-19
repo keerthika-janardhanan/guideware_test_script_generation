@@ -104,6 +104,10 @@ export function HorizontalFlowLayout({ initialStep = 'home' }: HorizontalFlowLay
   const [activeCodeTab, setActiveCodeTab] = useState<'locators' | 'pages' | 'tests'>('tests');
   const [editingColumnName, setEditingColumnName] = useState<number | null>(null);
   const [editedColumnValue, setEditedColumnValue] = useState<string>('');
+  const [editingMethods, setEditingMethods] = useState<number | null>(null);
+  const [editedMethodsValue, setEditedMethodsValue] = useState<string>('');
+  const [editingCode, setEditingCode] = useState<{tab: string, idx: number} | null>(null);
+  const [editedCodeValue, setEditedCodeValue] = useState<string>('');
   const [regeneratingScript, setRegeneratingScript] = useState(false);
   
   // TestManager fields
@@ -893,6 +897,73 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
   const handleCancelEditColumnName = () => {
     setEditingColumnName(null);
     setEditedColumnValue('');
+  };
+
+  const handleEditMethods = (idx: number) => {
+    setEditingMethods(idx);
+    setEditedMethodsValue((testDataMapping[idx].methods || []).join(', '));
+  };
+
+  const handleSaveMethods = (idx: number) => {
+    const updatedMapping = [...testDataMapping];
+    const methodsArray = editedMethodsValue.split(',').map(m => m.trim()).filter(m => m);
+    updatedMapping[idx] = { ...updatedMapping[idx], methods: methodsArray };
+    setTestDataMapping(updatedMapping);
+    setEditingMethods(null);
+    setEditedMethodsValue('');
+  };
+
+  const handleCancelEditMethods = () => {
+    setEditingMethods(null);
+    setEditedMethodsValue('');
+  };
+
+  const handleAddTestDataMapping = () => {
+    const newMapping = {
+      columnName: 'New Column',
+      actionType: 'fill',
+      occurrences: 1,
+      methods: []
+    };
+    setTestDataMapping([...testDataMapping, newMapping]);
+  };
+
+  const handleEditCode = (tab: string, idx: number, content: string) => {
+    setEditingCode({tab, idx});
+    setEditedCodeValue(content);
+  };
+
+  const handleSaveCode = () => {
+    if (!editingCode) return;
+    const updatedFiles = [...payloadFiles];
+    
+    // Get filtered files for the current tab
+    let tabFiles;
+    if (editingCode.tab === 'locators') {
+      tabFiles = updatedFiles.filter(f => f.path.includes('locators/'));
+    } else if (editingCode.tab === 'pages') {
+      tabFiles = updatedFiles.filter(f => f.path.includes('pages/'));
+    } else if (editingCode.tab === 'tests') {
+      tabFiles = updatedFiles.filter(f => f.path.includes('tests/') || f.path.endsWith('.spec.ts'));
+    }
+    
+    // Find the actual file in the full array
+    if (tabFiles && tabFiles[editingCode.idx]) {
+      const targetFile = tabFiles[editingCode.idx];
+      const actualIdx = updatedFiles.findIndex(f => f.path === targetFile.path);
+      if (actualIdx !== -1) {
+        updatedFiles[actualIdx] = {...updatedFiles[actualIdx], content: editedCodeValue};
+        setPayloadFiles(updatedFiles);
+      }
+    }
+    
+    setEditingCode(null);
+    setEditedCodeValue('');
+  };
+
+  const handleCancelEditCode = () => {
+    setEditingCode(null);
+    setEditedCodeValue('');
   };
 
   const handleDeleteTestDataMapping = async (idx: number) => {
@@ -3486,23 +3557,37 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                                   </span>
                                 </td>
                                 <td className="py-4 px-4 text-green-300 text-sm">
-                                  {mapping.methods && mapping.methods.length > 0 ? (
+                                  {editingMethods === idx ? (
+                                    <input
+                                      type="text"
+                                      value={editedMethodsValue}
+                                      onChange={(e) => setEditedMethodsValue(e.target.value)}
+                                      className="w-full px-3 py-2 bg-black/60 border-2 border-green-400/60 rounded-lg text-white font-mono text-sm focus:outline-none focus:border-green-400"
+                                      placeholder="method1, method2"
+                                      autoFocus
+                                      disabled={regeneratingScript}
+                                    />
+                                  ) : (
                                     <div className="flex flex-wrap gap-1">
-                                      {mapping.methods.map((method: string, mIdx: number) => (
-                                        <span key={mIdx} className="bg-green-500/20 px-2 py-1 rounded border border-green-400/30 font-mono text-xs">
-                                          {method}()
-                                        </span>
-                                      ))}
+                                      {mapping.methods && mapping.methods.length > 0 ? (
+                                        mapping.methods.map((method: string, mIdx: number) => (
+                                          <span key={mIdx} className="bg-green-500/20 px-2 py-1 rounded border border-green-400/30 font-mono text-xs">
+                                            {method}()
+                                          </span>
+                                        ))
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
                                     </div>
-                                  ) : '-'}
+                                  )}
                                 </td>
                                 <td className="text-center py-4 px-4">
-                                  {editingColumnName === idx ? (
+                                  {editingColumnName === idx || editingMethods === idx ? (
                                     <div className="flex items-center justify-center gap-2">
                                       <motion.button
                                         whileHover={{ scale: 1.1 }}
                                         whileTap={{ scale: 0.9 }}
-                                        onClick={() => handleSaveColumnName(idx)}
+                                        onClick={() => editingColumnName === idx ? handleSaveColumnName(idx) : handleSaveMethods(idx)}
                                         disabled={regeneratingScript}
                                         className="p-2 bg-green-600 rounded-lg text-white hover:bg-green-700 disabled:opacity-50 border border-green-400/40"
                                         title="Save"
@@ -3512,7 +3597,7 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                                       <motion.button
                                         whileHover={{ scale: 1.1 }}
                                         whileTap={{ scale: 0.9 }}
-                                        onClick={handleCancelEditColumnName}
+                                        onClick={() => editingColumnName === idx ? handleCancelEditColumnName() : handleCancelEditMethods()}
                                         disabled={regeneratingScript}
                                         className="p-2 bg-red-600 rounded-lg text-white hover:bg-red-700 disabled:opacity-50 border border-red-400/40"
                                         title="Cancel"
@@ -3535,6 +3620,16 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                                       <motion.button
                                         whileHover={{ scale: 1.1 }}
                                         whileTap={{ scale: 0.9 }}
+                                        onClick={() => handleEditMethods(idx)}
+                                        disabled={regeneratingScript}
+                                        className="p-2 bg-purple-600/50 rounded-lg text-white hover:bg-purple-600 border border-purple-400/40 disabled:opacity-50"
+                                        title="Edit methods"
+                                      >
+                                        🔧
+                                      </motion.button>
+                                      <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
                                         onClick={() => handleDeleteTestDataMapping(idx)}
                                         disabled={regeneratingScript}
                                         className="p-2 bg-red-600/50 rounded-lg text-white hover:bg-red-600 border border-red-400/40 disabled:opacity-50"
@@ -3549,6 +3644,17 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                             ))}
                           </tbody>
                         </table>
+                        <div className="mt-4 flex justify-end">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handleAddTestDataMapping}
+                            disabled={regeneratingScript}
+                            className="px-4 py-2 bg-blue-600 rounded-lg text-white hover:bg-blue-700 disabled:opacity-50 border border-blue-400/40 flex items-center gap-2"
+                          >
+                            <span>+</span> Add Row
+                          </motion.button>
+                        </div>
                         <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-400/30 rounded-lg">
                           <p className="text-sm text-yellow-200 flex items-start gap-2">
                             <span className="text-lg">💡</span>
@@ -3620,17 +3726,58 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                               <div key={idx} className="mb-4">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-sm text-green-300 font-mono">{file.path}</span>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => navigator.clipboard.writeText(file.content)}
-                                    className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
-                                  >
-                                    📋 Copy
-                                  </motion.button>
+                                  <div className="flex gap-2">
+                                    {editingCode?.tab === 'locators' && editingCode?.idx === idx ? (
+                                      <>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={handleSaveCode}
+                                          className="px-3 py-1 bg-green-600 border border-green-400/40 rounded text-white text-xs hover:bg-green-700 transition-all"
+                                        >
+                                          ✓ Save
+                                        </motion.button>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={handleCancelEditCode}
+                                          className="px-3 py-1 bg-red-600 border border-red-400/40 rounded text-white text-xs hover:bg-red-700 transition-all"
+                                        >
+                                          ✕ Cancel
+                                        </motion.button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={() => handleEditCode('locators', idx, file.content)}
+                                          className="px-3 py-1 bg-blue-600/50 border border-blue-400/40 rounded text-white text-xs hover:bg-blue-600 transition-all"
+                                        >
+                                          ✏️ Edit
+                                        </motion.button>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={() => navigator.clipboard.writeText(file.content)}
+                                          className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
+                                        >
+                                          📋 Copy
+                                        </motion.button>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="bg-black/50 rounded-lg p-6 max-h-[500px] overflow-y-auto">
-                                  <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                  {editingCode?.tab === 'locators' && editingCode?.idx === idx ? (
+                                    <textarea
+                                      value={editedCodeValue}
+                                      onChange={(e) => setEditedCodeValue(e.target.value)}
+                                      className="w-full h-[450px] bg-black/60 border-2 border-green-400/60 rounded-lg text-green-400 font-mono text-sm p-4 focus:outline-none focus:border-green-400 resize-none"
+                                    />
+                                  ) : (
+                                    <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                  )}
                                 </div>
                               </div>
                             ))}
@@ -3643,17 +3790,58 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                               <div key={idx} className="mb-4">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-sm text-green-300 font-mono">{file.path}</span>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => navigator.clipboard.writeText(file.content)}
-                                    className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
-                                  >
-                                    📋 Copy
-                                  </motion.button>
+                                  <div className="flex gap-2">
+                                    {editingCode?.tab === 'pages' && editingCode?.idx === idx ? (
+                                      <>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={handleSaveCode}
+                                          className="px-3 py-1 bg-green-600 border border-green-400/40 rounded text-white text-xs hover:bg-green-700 transition-all"
+                                        >
+                                          ✓ Save
+                                        </motion.button>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={handleCancelEditCode}
+                                          className="px-3 py-1 bg-red-600 border border-red-400/40 rounded text-white text-xs hover:bg-red-700 transition-all"
+                                        >
+                                          ✕ Cancel
+                                        </motion.button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={() => handleEditCode('pages', idx, file.content)}
+                                          className="px-3 py-1 bg-blue-600/50 border border-blue-400/40 rounded text-white text-xs hover:bg-blue-600 transition-all"
+                                        >
+                                          ✏️ Edit
+                                        </motion.button>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={() => navigator.clipboard.writeText(file.content)}
+                                          className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
+                                        >
+                                          📋 Copy
+                                        </motion.button>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="bg-black/50 rounded-lg p-6 max-h-[500px] overflow-y-auto">
-                                  <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                  {editingCode?.tab === 'pages' && editingCode?.idx === idx ? (
+                                    <textarea
+                                      value={editedCodeValue}
+                                      onChange={(e) => setEditedCodeValue(e.target.value)}
+                                      className="w-full h-[450px] bg-black/60 border-2 border-green-400/60 rounded-lg text-green-400 font-mono text-sm p-4 focus:outline-none focus:border-green-400 resize-none"
+                                    />
+                                  ) : (
+                                    <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                  )}
                                 </div>
                               </div>
                             ))}
@@ -3666,17 +3854,58 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
                               <div key={idx} className="mb-4">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-sm text-green-300 font-mono">{file.path}</span>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => navigator.clipboard.writeText(file.content)}
-                                    className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
-                                  >
-                                    📋 Copy
-                                  </motion.button>
+                                  <div className="flex gap-2">
+                                    {editingCode?.tab === 'tests' && editingCode?.idx === idx ? (
+                                      <>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={handleSaveCode}
+                                          className="px-3 py-1 bg-green-600 border border-green-400/40 rounded text-white text-xs hover:bg-green-700 transition-all"
+                                        >
+                                          ✓ Save
+                                        </motion.button>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={handleCancelEditCode}
+                                          className="px-3 py-1 bg-red-600 border border-red-400/40 rounded text-white text-xs hover:bg-red-700 transition-all"
+                                        >
+                                          ✕ Cancel
+                                        </motion.button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={() => handleEditCode('tests', idx, file.content)}
+                                          className="px-3 py-1 bg-blue-600/50 border border-blue-400/40 rounded text-white text-xs hover:bg-blue-600 transition-all"
+                                        >
+                                          ✏️ Edit
+                                        </motion.button>
+                                        <motion.button
+                                          whileHover={{ scale: 1.05 }}
+                                          whileTap={{ scale: 0.95 }}
+                                          onClick={() => navigator.clipboard.writeText(file.content)}
+                                          className="px-3 py-1 bg-white/10 border border-white/20 rounded text-white text-xs hover:bg-white/20 transition-all"
+                                        >
+                                          📋 Copy
+                                        </motion.button>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="bg-black/50 rounded-lg p-6 max-h-[500px] overflow-y-auto">
-                                  <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                  {editingCode?.tab === 'tests' && editingCode?.idx === idx ? (
+                                    <textarea
+                                      value={editedCodeValue}
+                                      onChange={(e) => setEditedCodeValue(e.target.value)}
+                                      className="w-full h-[450px] bg-black/60 border-2 border-green-400/60 rounded-lg text-green-400 font-mono text-sm p-4 focus:outline-none focus:border-green-400 resize-none"
+                                    />
+                                  ) : (
+                                    <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{file.content}</pre>
+                                  )}
                                 </div>
                               </div>
                             ))}

@@ -16,7 +16,7 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
         headed: Whether to append --headed.
         project_root: Root where Playwright config & node_modules live. Defaults to monorepo root.
     """
-    # Add Node.js to PATH if not already present
+    # Add Node.js to PATH first so shutil.which can find it
     nodejs_path = r"C:\Program Files\nodejs"
     if nodejs_path not in os.environ.get("PATH", ""):
         os.environ["PATH"] = nodejs_path + os.pathsep + os.environ.get("PATH", "")
@@ -77,6 +77,12 @@ def run_trial(script_content: str, headed: bool = True, env_overrides: Optional[
 
         # Merge environment with optional overrides (for trial-only creds)
         env = os.environ.copy()
+        # Add Node.js to PATH for subprocess
+        nodejs_path = r"C:\Program Files\nodejs"
+        current_path = env.get("PATH", "")
+        if nodejs_path not in current_path:
+            env["PATH"] = nodejs_path + os.pathsep + current_path
+            print(f"[Executor] Added Node.js to PATH: {nodejs_path}")
         if env_overrides:
             env.update(env_overrides)
 
@@ -207,6 +213,12 @@ def run_trial_in_framework(script_content: str, framework_root: Path, headed: bo
             spec_arg = tmp_path.replace('\\', '/')
         cmd, cwd = _resolve_playwright_command(spec_arg, headed, project_root=framework_root)
         env = os.environ.copy()
+        # Add Node.js to PATH for subprocess
+        nodejs_path = r"C:\Program Files\nodejs"
+        current_path = env.get("PATH", "")
+        if nodejs_path not in current_path:
+            env["PATH"] = nodejs_path + os.pathsep + current_path
+            print(f"[Executor] Added Node.js to PATH: {nodejs_path}")
         if env_overrides:
             env.update(env_overrides)
 
